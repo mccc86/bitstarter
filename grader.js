@@ -24,8 +24,11 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var rest = require('restler');
+
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
+var URLPATH = "";
 
 var assertFileExists = function(infile) {
     var instr = infile.toString();
@@ -36,23 +39,46 @@ var assertFileExists = function(infile) {
     return instr;
 };
 
-var cheerioHtmlFile = function(htmlfile) {
-    return cheerio.load(fs.readFileSync(htmlfile));
+var urlToString = function(path)
+{
+	return path.toString();
+}
+
+var cheerioHtmlFile = function(htmlfile, cb) {
+	var urlR = /^(?:([A-Za-z]+):)?(\/{0,3})([0-9.\-A-Za-z]+)(?::(\d+))?(?:\/([^?#]*))?(?:\?([^#]*))?(?:#(.*))?$/;
+	
+	if(validateURL(htmlfile))
+	{	
+		rest.get(htmlfile).on('complete', function(data){
+			cb(cheerio.load(data));
+		})
+	}else{
+		 cb(cheerio.load(fs.readFileSync(htmlfile)));
+	}
+   
 };
+
+function validateURL(textval) {
+     var urlregex = new RegExp(
+           "^(http|https|ftp)\://([a-zA-Z0-9\.\-]+(\:[a-zA-Z0-9\.&amp;%\$\-]+)*@)*((25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[1-9])\.(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[1-9]|0)\.(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[1-9]|0)\.(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[0-9])|([a-zA-Z0-9\-]+\.)*[a-zA-Z0-9\-]+\.(com|edu|gov|int|mil|net|org|biz|arpa|info|name|pro|aero|coop|museum|[a-zA-Z]{2}))(\:[0-9]+)*(/($|[a-zA-Z0-9\.\,\?\'\\\+&amp;%\$#\=~_\-]+))*$");
+     return urlregex.test(textval);
+   }
 
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
 
-var checkHtmlFile = function(htmlfile, checksfile) {
-    $ = cheerioHtmlFile(htmlfile);
-    var checks = loadChecks(checksfile).sort();
-    var out = {};
-    for(var ii in checks) {
-        var present = $(checks[ii]).length > 0;
-        out[checks[ii]] = present;
-    }
-    return out;
+var checkHtmlFile = function(htmlfile, checksfile, cb) {
+    cheerioHtmlFile(htmlfile, function($){
+	    var checks = loadChecks(checksfile).sort();
+	    var out = {};
+	    for(var ii in checks) {
+	        var present = $(checks[ii]).length > 0;
+	        out[checks[ii]] = present;
+	    }
+	    cb(out)
+    });
+    
 };
 
 var clone = function(fn) {
@@ -65,10 +91,23 @@ if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+		  .option('-u, --url <url_file>', 'URL Path', clone(urlToString), URLPATH)
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+		  var checkJson = "";
+	var result = function(d)
+	{
+		var outJson =  JSON.stringify(d, null, 4);
+		 console.log(outJson);
+	}	  
+	
+	 if(program.url) 
+	 {
+	 	checkJson = checkHtmlFile(program.url, program.checks, result);
+	 }else{
+	 	checkJson = checkHtmlFile(program.file, program.checks, result);
+	 } 
+     
+    
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
